@@ -1,6 +1,7 @@
 package com.crediya.r2dbc;
 
 import com.crediya.model.user.User;
+import com.crediya.model.user.exceptions.DomainException;
 import com.crediya.model.user.gateways.UserRepository;
 import com.crediya.r2dbc.entities.UserEntity;
 import com.crediya.r2dbc.helper.ReactiveAdapterOperations;
@@ -16,6 +17,7 @@ public class MyReactiveRepositoryAdapter
 
     private final MyReactiveRepository repository;
     private final ObjectMapper mapper;
+
 
     public MyReactiveRepositoryAdapter(MyReactiveRepository repository, ObjectMapper mapper) {
         super(repository, mapper, d -> mapper.map(d, User.class));
@@ -39,17 +41,17 @@ public class MyReactiveRepositoryAdapter
     @Override
     public Mono<User> editUser(User user) {
         return repository.findById(user.getId())
-                .switchIfEmpty(Mono.error(new RuntimeException("Usuario no encontrado")))
+                .switchIfEmpty(Mono.error(new DomainException("Usuario no encontrado")))
                 .flatMap(existing ->
                         // Validar que el DNI no esté en uso por otro
                         repository.findByDniNumber(user.getDniNumber())
                                 .filter(u -> !u.getId().equals(user.getId()))
-                                .flatMap(u -> Mono.<UserEntity>error(new RuntimeException("El DNI ya está registrado")))
+                                .flatMap(u -> Mono.<UserEntity>error(new DomainException("El DNI ya está registrado")))
                                 .switchIfEmpty(
                                         // Validar que el email no esté en uso por otro
                                         repository.getUserByEmail(user.getEmail())
                                                 .filter(u -> !u.getId().equals(user.getId()))
-                                                .flatMap(u -> Mono.<UserEntity>error(new RuntimeException("El email ya está registrado")))
+                                                .flatMap(u -> Mono.<UserEntity>error(new DomainException("El email ya está registrado")))
                                 )
                                 .switchIfEmpty(Mono.defer(() -> {
                                     // Actualizar los campos permitidos
@@ -79,12 +81,14 @@ public class MyReactiveRepositoryAdapter
     @Override
     public Mono<User> getUserByDniNumber(Long dniNumber) {
         return repository.findByDniNumber(dniNumber)
-                .map(entity -> mapper.map(entity, User.class));
+                .map(entity -> mapper.map(entity, User.class))
+                .switchIfEmpty(Mono.error(new DomainException("User not found with dniNumber: " + dniNumber)));
     }
 
     @Override
     public Mono<User> getUserByEmail(String email) {
         return repository.getUserByEmail(email)
-                .map(entity -> mapper.map(entity, User.class));
+                .map(entity -> mapper.map(entity, User.class))
+                .switchIfEmpty(Mono.error(new DomainException("User not found with dniNumber: " + email)));
     }
 }
