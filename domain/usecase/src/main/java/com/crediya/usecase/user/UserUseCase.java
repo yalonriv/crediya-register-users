@@ -33,15 +33,18 @@ public class UserUseCase {
     }
 
     private Mono<Void> validateUniqueDni(Long dniNumber) {
-        return userRepository.getUserByDniNumber(dniNumber)
+        return userRepository.getUserByDniNumber(dniNumber)  // ¡Usa el nuevo método!
                 .flatMap(existingUser ->
-                        Mono.error(new ValidationException("Ya existe un usuario con el mismo DNI")));
+                        Mono.error(new ValidationException("Ya existe un usuario con el mismo DNI"))
+                )
+                .then();
     }
 
     private Mono<Void> validateUniqueEmail(String email) {
         return userRepository.getUserByEmail(email)
                 .flatMap(existingUser ->
-                        Mono.error(new ValidationException("Ya existe un usuario con el mismo email")));
+                        Mono.error(new ValidationException("Ya existe un usuario con el mismo email")))
+                .then();
     }
 
     public Flux<User> listUsers() {

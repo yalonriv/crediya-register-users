@@ -2,6 +2,7 @@ package com.crediya.r2dbc;
 
 import com.crediya.model.user.User;
 import com.crediya.model.user.exceptions.DomainException;
+import com.crediya.model.user.exceptions.ValidationException;
 import com.crediya.model.user.gateways.UserRepository;
 import com.crediya.r2dbc.entities.UserEntity;
 import com.crediya.r2dbc.helper.ReactiveAdapterOperations;
@@ -41,37 +42,54 @@ public class MyReactiveRepositoryAdapter
     @Override
     public Mono<User> editUser(User user) {
         return repository.findById(user.getId())
-                .switchIfEmpty(Mono.error(new DomainException("Usuario no encontrado")))
-                .flatMap(existing ->
-                        // Validar que el DNI no esté en uso por otro
-                        repository.findByDniNumber(user.getDniNumber())
-                                .filter(u -> !u.getId().equals(user.getId()))
-                                .flatMap(u -> Mono.<UserEntity>error(new DomainException("El DNI ya está registrado")))
-                                .switchIfEmpty(
-                                        // Validar que el email no esté en uso por otro
-                                        repository.getUserByEmail(user.getEmail())
-                                                .filter(u -> !u.getId().equals(user.getId()))
-                                                .flatMap(u -> Mono.<UserEntity>error(new DomainException("El email ya está registrado")))
-                                )
-                                .switchIfEmpty(Mono.defer(() -> {
-                                    // Actualizar los campos permitidos
-                                    existing.setFirstName(user.getFirstName());
-                                    existing.setSecondName(user.getSecondName());
-                                    existing.setSurName(user.getSurName());
-                                    existing.setSecondSurName(user.getSecondSurName());
-                                    existing.setBirthDate(user.getBirthDate());
-                                    existing.setAddress(user.getAddress());
-                                    existing.setPhoneNumber(user.getPhoneNumber());
-                                    existing.setEmail(user.getEmail());
-                                    existing.setBaseSalary(user.getBaseSalary());
-                                    existing.setDniNumber(user.getDniNumber());
+                .switchIfEmpty(Mono.error(new ValidationException("Usuario no encontrado")))
+                .flatMap(existingEntity -> {
+                    // 1. Si el DNI no cambió, saltar validación
+                    if (existingEntity.getDniNumber().equals(user.getDniNumber())) {
+                        System.out.println("DEBUG: DNI no cambió, saltando validación");
+                        return validateEmailUniqueness(user, existingEntity);
+                    }
 
-                                    return repository.save(existing);
-                                }))
-                )
-                .map(e -> mapper.map(e, User.class));
+                    // 2. Solo validar DNI si realmente cambió
+                    return repository.findByDniNumber(user.getDniNumber())
+                            .flatMap(otherUser -> {
+                                System.out.println("DEBUG: DNI cambiado, validando...");
+                                return Mono.error(new ValidationException("El DNI ya esta registrado por otro usuario"));
+                            })
+                            .switchIfEmpty(validateEmailUniqueness(user, existingEntity))
+                            .cast(UserEntity.class);
+                })
+                .map(entity -> mapper.map(entity, User.class));
     }
 
+
+    private Mono<UserEntity> validateEmailUniqueness(User user, UserEntity existingEntity) {
+        return repository.getUserByEmail(user.getEmail())
+                .flatMap(otherUser -> {
+                    if (!otherUser.getId().equals(user.getId())) {
+                        return Mono.error(new ValidationException("El email ya está registrado por otro usuario"));
+                    }
+                    // Si es el mismo usuario, actualizar
+                    return updateAndSaveUser(user, existingEntity);
+                })
+                .switchIfEmpty(updateAndSaveUser(user, existingEntity)); // Si no existe usuario con ese email
+    }
+
+    private Mono<UserEntity> updateAndSaveUser(User user, UserEntity existingEntity) {
+        // Actualizar campos
+        existingEntity.setFirstName(user.getFirstName());
+        existingEntity.setSecondName(user.getSecondName());
+        existingEntity.setSurName(user.getSurName());
+        existingEntity.setSecondSurName(user.getSecondSurName());
+        existingEntity.setBirthDate(user.getBirthDate());
+        existingEntity.setAddress(user.getAddress());
+        existingEntity.setPhoneNumber(user.getPhoneNumber());
+        existingEntity.setEmail(user.getEmail());
+        existingEntity.setBaseSalary(user.getBaseSalary());
+        existingEntity.setDniNumber(user.getDniNumber());
+
+        return repository.save(existingEntity);
+    }
 
     @Override
     public Mono<Void> deleteUser(Long idNumber) {
@@ -81,14 +99,12 @@ public class MyReactiveRepositoryAdapter
     @Override
     public Mono<User> getUserByDniNumber(Long dniNumber) {
         return repository.findByDniNumber(dniNumber)
-                .map(entity -> mapper.map(entity, User.class))
-                .switchIfEmpty(Mono.error(new DomainException("User not found with dniNumber: " + dniNumber)));
+                .map(entity -> mapper.map(entity, User.class));
     }
 
     @Override
     public Mono<User> getUserByEmail(String email) {
         return repository.getUserByEmail(email)
-                .map(entity -> mapper.map(entity, User.class))
-                .switchIfEmpty(Mono.error(new DomainException("User not found with dniNumber: " + email)));
+                .map(entity -> mapper.map(entity, User.class));
     }
 }

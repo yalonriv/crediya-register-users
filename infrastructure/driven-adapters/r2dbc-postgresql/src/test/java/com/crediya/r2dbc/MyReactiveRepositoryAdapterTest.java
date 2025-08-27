@@ -2,6 +2,7 @@ package com.crediya.r2dbc;
 
 import com.crediya.model.user.User;
 import com.crediya.model.user.exceptions.DomainException;
+import com.crediya.model.user.exceptions.ValidationException;
 import com.crediya.r2dbc.entities.UserEntity;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -129,14 +130,28 @@ class MyReactiveRepositoryAdapterTest {
     @Test
     void mustFailWhenDniAlreadyExists() {
         // arrange
-        UserEntity existingEntity = new UserEntity();
-        existingEntity.setId(2L); // <- distinto id al del user que edito
-        existingEntity.setDniNumber(12345678L);
-        existingEntity.setEmail("other@test.com");
+        // Usuario que YA TIENE el DNI
+        UserEntity existingUserWithDni = new UserEntity();
+        existingUserWithDni.setId(2L);
+        existingUserWithDni.setDniNumber(12345678L);
+        existingUserWithDni.setEmail("other@test.com");
 
-        when(repository.findById(1L)).thenReturn(Mono.just(existingEntity));
-        when(repository.findByDniNumber(12345678L)).thenReturn(Mono.just(existingEntity));
+        // Usuario que se va a EDITAR
+        UserEntity userToBeEdited = new UserEntity();
+        userToBeEdited.setId(1L);
+        userToBeEdited.setDniNumber(99999999L); // DNI original diferente
+        userToBeEdited.setEmail("original@test.com");
+
+        // Mocks CORRECTOS
+        when(repository.findById(1L)).thenReturn(Mono.just(userToBeEdited));
+        when(repository.findByDniNumber(12345678L)).thenReturn(Mono.just(existingUserWithDni));
         when(repository.getUserByEmail("test@test.com")).thenReturn(Mono.empty());
+
+        // ¡IMPORTANTE! Mock para repository.save()
+        when(repository.save(any(UserEntity.class))).thenAnswer(invocation -> {
+            UserEntity entity = invocation.getArgument(0);
+            return Mono.just(entity);
+        });
 
         User userToEdit = new User(
                 1L, "Pepe", "García", null, null, null, null, null, "test@test.com", 1000.0, 12345678L
@@ -144,8 +159,8 @@ class MyReactiveRepositoryAdapterTest {
 
         // act & assert
         StepVerifier.create(repositoryAdapter.editUser(userToEdit))
-                .expectErrorMatches(ex -> ex instanceof DomainException &&
-                        ex.getMessage().equals("El DNI ya está registrado"))
+                .expectErrorMatches(ex -> ex instanceof ValidationException &&
+                        ex.getMessage().equals("El DNI ya esta registrado por otro usuario"))
                 .verify();
     }
 
