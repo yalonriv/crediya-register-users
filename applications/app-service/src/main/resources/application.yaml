@@ -36,3 +36,11 @@ adapters:
     schema: "public"
     username: "postgres"
     password: "yamile2618"
+
+springdoc:
+  api-docs:
+    enabled: true
+    path: /api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
